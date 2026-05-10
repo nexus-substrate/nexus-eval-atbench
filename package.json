@@ -1,12 +1,12 @@
 {
-  "name": "nexus-eval-BENCHMARK",
-  "version": "0.0.1",
-  "description": "TEMPLATE — Replace with: '<benchmark-name> evaluation harness for nexus-agents'",
+  "name": "nexus-eval-atbench",
+  "version": "0.1.0",
+  "description": "Atbench (agent-trajectory safety benchmark) evaluation harness for nexus-agents",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "nexus-eval-BENCHMARK": "dist/cli.js"
+    "nexus-eval-atbench": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",
@@ -20,7 +20,10 @@
     "nexus-agents",
     "nexus-agents-eval",
     "benchmark",
-    "evaluation"
+    "evaluation",
+    "atbench",
+    "agent-safety",
+    "trajectory-safety"
   ],
   "author": "",
   "license": "MIT",
@@ -30,6 +33,9 @@
   "files": [
     "dist/"
   ],
+  "dependencies": {
+    "zod": "^4.0.0"
+  },
   "peerDependencies": {
     "nexus-agents": ">=2.33.1"
   },

@@ -1,36 +1,85 @@
-# nexus-eval-template
+# nexus-eval-atbench
 
-Scaffold for building a new nexus-agents evaluation / benchmark harness.
+Atbench (agent-trajectory safety) evaluation harness for [nexus-agents](https://github.com/williamzujkowski/nexus-agents) — implements the `BenchmarkAdapter` contract from nexus-agents ≥ 2.33.1.
 
-Copy this repo, implement the adapter methods against your benchmark, publish as `nexus-eval-<name>`. Any benchmark you can express as `load instances → produce prediction → evaluate verdict` fits.
+> Source: extracted from in-tree `packages/nexus-agents/src/benchmarks/atbench/` per the nexus-agents harness-extraction policy ([epic #2514](https://github.com/williamzujkowski/nexus-agents/issues/2514), originally [#1960](https://github.com/williamzujkowski/nexus-agents/issues/1960)).
 
-## What you get
+## What this benchmark measures
 
-- `src/adapter.ts` — `BenchmarkAdapter` stub with all 4 required methods and inline "replace this" comments
-- `src/cli.ts` — CLI entry point that invokes `runBenchmark()` from nexus-agents
-- `src/index.ts` — library export so your adapter can be composed by other tools
-- `src/adapter.test.ts` — smoke tests proving the scaffold runs
-- `tsconfig.json`, `package.json` — TypeScript strict, vitest, Node 22+
-- MIT license, peer dependency on `nexus-agents >= 2.33.0`
+Atbench evaluates an agent's **trajectory safety** — given a recorded session of (user request → tool calls → outputs), can a scorer correctly classify whether the trajectory was safe or unsafe? The benchmark surfaces:
+
+- **Confusion matrix** (TP/TN/FP/FN) over a labelled trajectory set
+- **Precision / recall / F1** for the unsafe class
+- Two harness variants: `claw` (default — for ClawGuard-style trajectory analysis) and `codex` (the upstream Codex-style scorer)
+
+## Install
+
+```sh
+npm install nexus-eval-atbench nexus-agents
+```
+
+`nexus-agents` is a peer dependency.
 
 ## Quick start
 
 ```sh
-# 1. Copy this repo
-gh repo create yourname/nexus-eval-<bench> --template williamzujkowski/nexus-eval-template --public
+# Run against the bundled fixture
+npx nexus-eval-atbench --fixture ./fixtures/sample.jsonl
 
-# 2. Clone + install
-gh repo clone yourname/nexus-eval-<bench>
-cd nexus-eval-<bench>
-npm install
+# Run against the HuggingFace dataset (when available)
+npx nexus-eval-atbench --variant claw --limit 10
 
-# 3. Sanity check — the template tests pass out of the box
-npm test
+# JSON summary
+npx nexus-eval-atbench --json --fixture ./fixtures/sample.jsonl > run.json
 ```
+
+## Library usage
+
+```ts
+import { runBenchmark } from 'nexus-agents';
+import { ATBenchAdapter } from 'nexus-eval-atbench';
+
+const adapter = new ATBenchAdapter({ variant: 'claw' });
+const summary = await runBenchmark(adapter, { fixturePath: './fixtures/sample.jsonl' });
+console.log(`F1: ${summary.metadata.f1}, precision: ${summary.metadata.precision}`);
+```
+
+### LLM-scored trajectories
+
+The default `runInstance` uses a heuristic stub scorer. Pass a real `IModelAdapter` to score with an LLM:
+
+```ts
+const adapter = new ATBenchAdapter({
+  variant: 'claw',
+  scorerAdapter: myModelAdapter,
+  scorerTimeoutMs: 5000,
+});
+```
+
+## What this harness does
+
+- Loads ATBench instances from a local JSONL fixture or the HuggingFace dataset.
+- Runs each trajectory through the configured scorer (stub heuristic or LLM).
+- Compares the scorer's predicted label (`safe` / `unsafe`) against ground truth.
+- Aggregates into a confusion matrix + precision/recall/F1.
+
+## Migration note (for nexus-agents users)
+
+Prior to this extraction, atbench shipped as `nexus-agents atbench` CLI subcommand and as `import('nexus-agents/benchmarks/atbench')`. Both are now deprecated. Migration:
+
+```diff
+- npx nexus-agents atbench --fixture ./fixture.jsonl
++ npx nexus-eval-atbench --fixture ./fixture.jsonl
+
+- import { ATBenchAdapter } from 'nexus-agents/benchmarks/atbench';
++ import { ATBenchAdapter } from 'nexus-eval-atbench';
+```
+
+The in-tree code will be removed from nexus-agents after this package is published. See [nexus-agents #2516](https://github.com/williamzujkowski/nexus-agents/issues/2516) for tracking.
 
 ## The contract
 
-Every `nexus-eval-*` package implements one interface from `nexus-agents`:
+`BenchmarkAdapter` from nexus-agents:
 
 ```ts
 interface BenchmarkAdapter<TInstance, TPrediction, TEvalResult> {
@@ -44,34 +93,7 @@ interface BenchmarkAdapter<TInstance, TPrediction, TEvalResult> {
 }
 ```
 
-The orchestrator (`runBenchmark` in nexus-agents) handles concurrency, timeouts, progress, and partial failure for you — you don't reimplement the harness.
-
-## Implementation steps
-
-1. **Rename** `nexus-eval-BENCHMARK` to your benchmark name in `package.json` (name, bin, description).
-2. **Replace `BenchmarkInstance` / `BenchmarkPrediction` / `BenchmarkEvalResult`** in `src/adapter.ts` with your benchmark's actual shapes.
-3. **Implement `loadInstances`** — read your dataset from disk or fetch from an API.
-4. **Implement `runInstance`** — call your solver (usually a CLI subprocess or API call).
-5. **Implement `evaluate`** — run tests / diff against ground truth / grade with an LLM.
-6. **Customize `summarize`** — add benchmark-specific breakdowns in `metadata` (pass-by-category, dataset version, etc.).
-7. **Customize the CLI** — most of `src/cli.ts` stays the same; update flags for variant names specific to your benchmark.
-8. **Tag your repo** — `gh repo edit --add-topic nexus-agents-eval` so `ECOSYSTEM.md` discovery works.
-
-## Tips
-
-- **No HTTP server needed.** Adapters are libraries + CLIs. nexus-agents is a peer dependency; you don't need to run its MCP server to exercise the contract.
-- **Per-instance failures don't abort the run.** If one instance throws, `runBenchmark` records it in `summary.metadata.failureCount` and continues.
-- **Honor `ctx.signal`** in your `runInstance` so long runs can be cancelled.
-- **Put variants into `config` or the constructor**, not CLI flags passed through to every instance. Example: `new MyBenchAdapter({ variant: 'lite' })`.
-- **Keep pure evaluation separate from network calls.** Makes the tests reproducible and fast.
-
-## Existing benchmarks using this pattern
-
-- [nexus-eval-swebench](https://github.com/williamzujkowski/nexus-eval-swebench) — SWE-bench Lite/Verified/Full (extraction tracked by nexus-agents #1962)
-
-## Ecosystem
-
-See [nexus-agents ECOSYSTEM.md](https://github.com/williamzujkowski/nexus-agents/blob/main/ECOSYSTEM.md) for the full registry.
+The orchestrator (`runBenchmark` in nexus-agents) handles concurrency, timeouts, progress, and partial failure.
 
 ## License
 

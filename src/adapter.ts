@@ -1,164 +1,174 @@
 /**
- * Template BenchmarkAdapter implementation.
+ * ATBench BenchmarkAdapter (#1981).
  *
- * Replace everything here with your benchmark-specific logic. The four
- * methods are all you need to implement; `runBenchmark()` from
- * `nexus-agents` handles the harness (concurrency, timeouts, progress,
- * partial failure, summary).
+ * Implements the `BenchmarkAdapter` contract so ATBench can plug into the
+ * standard nexus-agents benchmark CLI / reporting surface alongside SWE-bench.
  *
- * Type parameters:
- * - TInstance: one task/problem in your benchmark
- * - TPrediction: what your solver produces (patch, code, answer, etc.)
- * - TEvalResult: what your evaluator produces (pass/fail + context)
+ * **Current state: skeleton only —**
+ * - `loadInstances` requires a fixture path (HF dataset loader is a follow-up)
+ * - `runInstance` calls the stub scorer
+ * - `evaluate` + `summarize` are real (confusion matrix, accuracy, F1)
  *
- * @module adapter
+ * @module benchmarks/atbench/adapter
  */
 
+import type { IModelAdapter } from 'nexus-agents';
+import type { BenchmarkAdapter, BenchmarkRunContext, BenchmarkRunSummary } from 'nexus-agents';
+import { fetchAtbenchFromHf } from './dataset-loader.js';
+import { scoreTrajectoryViaLlm, DEFAULT_SCORER_TIMEOUT_MS } from './llm-scorer.js';
+import { classifyConfusion, scoreTrajectoryStub } from './scorer.js';
 import type {
-  BenchmarkAdapter,
-  BenchmarkRunContext,
-  BenchmarkRunSummary,
-} from 'nexus-agents';
+  ATBenchEvalResult,
+  ATBenchLoadConfig,
+  ATBenchPrediction,
+  ATBenchTrajectory,
+} from './types.js';
+import { ATBenchTrajectorySchema } from './types.js';
 
-// ============================================================================
-// Replace these types with your benchmark's actual shapes
-// ============================================================================
-
-/** One problem from your benchmark dataset. */
-export interface BenchmarkInstance {
-  readonly id: string;
-  readonly prompt: string;
-  readonly expectedOutput?: string;
-  // Add whatever fields your dataset has.
+/** Optional adapter configuration. */
+export interface ATBenchAdapterOptions {
+  /** Variant of the dataset (claw or codex). Default: 'claw'. */
+  readonly variant?: 'claw' | 'codex';
+  /**
+   * Optional IModelAdapter for LLM-based scoring. When omitted, runInstance
+   * uses the perfect-oracle stub (echoes ground truth — useful for smoke
+   * tests; not a real evaluation).
+   */
+  readonly scorerAdapter?: IModelAdapter;
+  /** LLM scorer timeout in ms. Default: 5000. */
+  readonly scorerTimeoutMs?: number;
 }
 
-/** What your solver produces for one instance. */
-export interface BenchmarkPrediction {
-  readonly instanceId: string;
-  readonly output: string;
-  readonly durationMs: number;
-}
+export class ATBenchAdapter implements BenchmarkAdapter<
+  ATBenchTrajectory,
+  ATBenchPrediction,
+  ATBenchEvalResult
+> {
+  readonly name = 'atbench';
+  readonly variant: string;
+  private readonly scorerAdapter: IModelAdapter | undefined;
+  private readonly scorerTimeoutMs: number;
 
-/** Verdict for one instance. Adapter decides pass/fail via isPass(). */
-export interface BenchmarkEvalResult {
-  readonly instanceId: string;
-  readonly passed: boolean;
-  readonly reason?: string;
-}
-
-// ============================================================================
-// Configuration — what loadInstances() takes
-// ============================================================================
-
-export interface BenchmarkConfig {
-  /** Where the dataset lives. Replace with whatever your benchmark needs. */
-  readonly datasetPath?: string;
-  /** Variant within the benchmark family, if any (e.g., 'lite', 'full'). */
-  readonly variant?: string;
-}
-
-// ============================================================================
-// Adapter implementation
-// ============================================================================
-
-/**
- * Rename this class to reflect your benchmark (e.g., `HumanEvalAdapter`,
- * `MbppAdapter`).
- */
-export class TemplateBenchmarkAdapter
-  implements BenchmarkAdapter<BenchmarkInstance, BenchmarkPrediction, BenchmarkEvalResult>
-{
-  readonly name = 'template-bench'; // replace: 'humaneval', 'mbpp', etc.
-  readonly variant: string | undefined;
-
-  constructor(config: BenchmarkConfig = {}) {
-    this.variant = config.variant;
+  constructor(variantOrOptions: 'claw' | 'codex' | ATBenchAdapterOptions = 'claw') {
+    if (typeof variantOrOptions === 'string') {
+      this.variant = variantOrOptions;
+      this.scorerAdapter = undefined;
+      this.scorerTimeoutMs = DEFAULT_SCORER_TIMEOUT_MS;
+    } else {
+      this.variant = variantOrOptions.variant ?? 'claw';
+      this.scorerAdapter = variantOrOptions.scorerAdapter;
+      this.scorerTimeoutMs = variantOrOptions.scorerTimeoutMs ?? DEFAULT_SCORER_TIMEOUT_MS;
+    }
   }
 
   /**
-   * Load the task set. Called once per run.
+   * Loads trajectories from either a local JSONL fixture (offline / CI smoke
+   * test) or the public HuggingFace Datasets API (production evaluation).
    *
-   * Your implementation should: read from disk / fetch from an API /
-   * load a fixture. Return an array of instances the orchestrator will
-   * iterate through.
+   * Precedence: `fixturePath` wins if provided; otherwise fetches from
+   * `AI45Research/ATBench-Claw` (or `-CodeX`) via the HF Datasets Server.
+   * Public datasets — no auth required.
    */
-  loadInstances(_config: Record<string, unknown>): Promise<readonly BenchmarkInstance[]> {
-    // TODO: replace with your dataset loader
-    return Promise.resolve([
-      { id: 'example-1', prompt: 'add two numbers' },
-      { id: 'example-2', prompt: 'reverse a string' },
-    ]);
+  async loadInstances(config: Record<string, unknown>): Promise<readonly ATBenchTrajectory[]> {
+    const typed = config as unknown as ATBenchLoadConfig;
+    const hasFixture = typeof typed.fixturePath === 'string' && typed.fixturePath.length > 0;
+    return hasFixture ? loadFromFixture(typed) : loadFromHf(typed, this.variant);
   }
 
-  /**
-   * Run the solver on one instance. No evaluation here — this method
-   * only produces the prediction.
-   *
-   * Your implementation typically calls out to a CLI / API / sandbox.
-   * Honor `ctx.signal` to support cancellation.
-   */
-  runInstance(
-    instance: BenchmarkInstance,
-    ctx: BenchmarkRunContext
-  ): Promise<BenchmarkPrediction> {
-    // TODO: replace with your actual solver invocation
-    const start = performance.now();
-    void ctx; // use ctx.signal, ctx.timeoutMs, ctx.onProgress as needed
+  async runInstance(
+    instance: ATBenchTrajectory,
+    _ctx: BenchmarkRunContext
+  ): Promise<ATBenchPrediction> {
+    if (this.scorerAdapter === undefined) {
+      return Promise.resolve(scoreTrajectoryStub(instance));
+    }
+    const result = await scoreTrajectoryViaLlm(this.scorerAdapter, instance, this.scorerTimeoutMs);
+    return result.prediction;
+  }
+
+  async evaluate(
+    instance: ATBenchTrajectory,
+    prediction: ATBenchPrediction
+  ): Promise<ATBenchEvalResult> {
     return Promise.resolve({
-      instanceId: instance.id,
-      output: `stub output for ${instance.id}`,
-      durationMs: Math.round(performance.now() - start),
+      trajectoryId: instance.id,
+      groundTruthLabel: instance.safetyLabel,
+      predictedLabel: prediction.predictedLabel,
+      confusion: classifyConfusion(prediction.predictedLabel, instance.safetyLabel),
+      reasoning: prediction.reasoning,
     });
   }
 
-  /**
-   * Evaluate a prediction against ground truth. Returns your
-   * benchmark-specific verdict — pass/fail semantics live here.
-   */
-  evaluate(
-    instance: BenchmarkInstance,
-    prediction: BenchmarkPrediction
-  ): Promise<BenchmarkEvalResult> {
-    // TODO: replace with your actual evaluation logic (exec tests, diff
-    // against expected output, grade with an LLM, etc.)
-    const passed =
-      instance.expectedOutput === undefined
-        ? prediction.output.length > 0
-        : prediction.output === instance.expectedOutput;
-    return Promise.resolve({
-      instanceId: instance.id,
-      passed,
-      ...(passed ? {} : { reason: 'output did not match expected' }),
-    });
+  isPass(result: ATBenchEvalResult): boolean {
+    // A result is a "pass" when the prediction matches ground truth.
+    // (The benchmark's job is detection accuracy, not avoiding unsafe behavior.)
+    return result.confusion === 'tp' || result.confusion === 'tn';
   }
 
-  /** Does this verdict count as a pass? Usually trivial. */
-  isPass(result: BenchmarkEvalResult): boolean {
-    return result.passed;
-  }
+  summarize(results: readonly ATBenchEvalResult[], runTimeMs: number): BenchmarkRunSummary {
+    const total = results.length;
+    const passed = results.filter((r) => this.isPass(r)).length;
+    const tp = results.filter((r) => r.confusion === 'tp').length;
+    const fp = results.filter((r) => r.confusion === 'fp').length;
+    const fn = results.filter((r) => r.confusion === 'fn').length;
+    const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
+    const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
+    const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
 
-  /**
-   * Aggregate verdicts into a summary. Should be pure + deterministic.
-   * Put benchmark-specific breakdowns (by category, difficulty, etc.)
-   * into `metadata`.
-   */
-  summarize(
-    results: readonly BenchmarkEvalResult[],
-    runTimeMs: number
-  ): BenchmarkRunSummary {
-    const passed = results.filter((r) => r.passed).length;
     return {
       name: this.name,
       variant: this.variant,
-      total: results.length,
+      total,
       passed,
-      passRate: results.length > 0 ? passed / results.length : 0,
+      passRate: total > 0 ? passed / total : 0,
       runTimeMs,
       metadata: {
-        // Add benchmark-specific breakdowns here, e.g.:
-        // passByCategory: { ... },
-        // datasetVersion: '...',
+        confusionMatrix: { tp, fp, fn, tn: total - tp - fp - fn },
+        precision,
+        recall,
+        f1,
+        positiveClass: 'unsafe',
       },
     };
   }
+}
+
+/** Read trajectories from a local JSONL fixture. */
+async function loadFromFixture(typed: ATBenchLoadConfig): Promise<readonly ATBenchTrajectory[]> {
+  const { readFile } = await import('node:fs/promises');
+  const path = typed.fixturePath as string;
+  const raw = await readFile(path, 'utf8');
+  const lines = raw.split('\n').filter((l) => l.trim().length > 0);
+  const trajectories: ATBenchTrajectory[] = lines.map((line, idx) => {
+    const parsed = ATBenchTrajectorySchema.safeParse(JSON.parse(line));
+    if (!parsed.success) {
+      throw new Error(
+        `ATBench fixture line ${String(idx + 1)} failed schema validation: ${parsed.error.message}`
+      );
+    }
+    return parsed.data;
+  });
+  return typeof typed.maxInstances === 'number'
+    ? trajectories.slice(0, typed.maxInstances)
+    : trajectories;
+}
+
+/** Fetch trajectories from HuggingFace Datasets API. */
+async function loadFromHf(
+  typed: ATBenchLoadConfig,
+  adapterVariant: string
+): Promise<readonly ATBenchTrajectory[]> {
+  // typed.variant is declared required on ATBenchLoadConfig but the runtime
+  // call site may omit it; treat it as optional and fall back to the adapter's
+  // own variant.
+  const requested = (typed as { variant?: 'claw' | 'codex' }).variant;
+  const variant: 'claw' | 'codex' = requested ?? (adapterVariant === 'codex' ? 'codex' : 'claw');
+  const result = await fetchAtbenchFromHf({
+    variant,
+    ...(typeof typed.maxInstances === 'number' ? { limit: typed.maxInstances } : {}),
+  });
+  if (!result.ok) {
+    throw new Error(`ATBench HF load failed: ${result.error.message}`);
+  }
+  return result.value.trajectories;
 }
