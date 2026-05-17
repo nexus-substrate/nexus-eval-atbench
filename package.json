@@ -1,6 +1,6 @@
 {
   "name": "nexus-eval-atbench",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Atbench (agent-trajectory safety benchmark) evaluation harness for nexus-agents",
   "type": "module",
   "main": "dist/index.js",

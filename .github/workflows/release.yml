@@ -29,13 +29,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          # Node 24 LTS ships with npm 11.x, which natively supports OIDC
+          # trusted publishing (npm 10.x didn't — that was the silent
+          # `E404 'not in this registry'` cause that wasted hours).
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-      # OIDC trusted publishing requires npm >= 11.5.1. setup-node@v4 ships
-      # an older npm (10.x), so we upgrade explicitly. Without this, `npm
-      # publish --provenance` from CI returns E404 because npm 10 sends an
-      # unauthenticated PUT (no OIDC negotiation with the registry).
-      - run: npm install -g npm@latest
       - run: npm install
       - run: npm run typecheck
       - run: npm test
