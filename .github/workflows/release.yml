@@ -31,6 +31,11 @@ jobs:
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+      # OIDC trusted publishing requires npm >= 11.5.1. setup-node@v4 ships
+      # an older npm (10.x), so we upgrade explicitly. Without this, `npm
+      # publish --provenance` from CI returns E404 because npm 10 sends an
+      # unauthenticated PUT (no OIDC negotiation with the registry).
+      - run: npm install -g npm@latest
       - run: npm install
       - run: npm run typecheck
       - run: npm test
