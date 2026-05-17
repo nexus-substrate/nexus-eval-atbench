@@ -1,8 +1,8 @@
 # nexus-eval-atbench
 
-Atbench (agent-trajectory safety) evaluation harness for [nexus-agents](https://github.com/williamzujkowski/nexus-agents) — implements the `BenchmarkAdapter` contract from nexus-agents ≥ 2.33.1.
+Atbench (agent-trajectory safety) evaluation harness for [nexus-agents](https://github.com/nexus-substrate/nexus-agents) — implements the `BenchmarkAdapter` contract from nexus-agents ≥ 2.33.1.
 
-> Source: extracted from in-tree `packages/nexus-agents/src/benchmarks/atbench/` per the nexus-agents harness-extraction policy ([epic #2514](https://github.com/williamzujkowski/nexus-agents/issues/2514), originally [#1960](https://github.com/williamzujkowski/nexus-agents/issues/1960)).
+> Source: extracted from in-tree `packages/nexus-agents/src/benchmarks/atbench/` per the nexus-agents harness-extraction policy ([epic #2514](https://github.com/nexus-substrate/nexus-agents/issues/2514), originally [#1960](https://github.com/nexus-substrate/nexus-agents/issues/1960)).
 
 ## What this benchmark measures
 
@@ -75,7 +75,7 @@ Prior to this extraction, atbench shipped as `nexus-agents atbench` CLI subcomma
 + import { ATBenchAdapter } from 'nexus-eval-atbench';
 ```
 
-The in-tree code will be removed from nexus-agents after this package is published. See [nexus-agents #2516](https://github.com/williamzujkowski/nexus-agents/issues/2516) for tracking.
+The in-tree code will be removed from nexus-agents after this package is published. See [nexus-agents #2516](https://github.com/nexus-substrate/nexus-agents/issues/2516) for tracking.
 
 ## The contract
 
