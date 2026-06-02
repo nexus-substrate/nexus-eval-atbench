@@ -4,11 +4,11 @@
   "description": "Atbench (agent-trajectory safety benchmark) evaluation harness for nexus-agents",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/williamzujkowski/nexus-eval-atbench.git"
+    "url": "git+https://github.com/nexus-substrate/nexus-eval-atbench.git"
   },
-  "homepage": "https://github.com/williamzujkowski/nexus-eval-atbench#readme",
+  "homepage": "https://github.com/nexus-substrate/nexus-eval-atbench#readme",
   "bugs": {
-    "url": "https://github.com/williamzujkowski/nexus-eval-atbench/issues"
+    "url": "https://github.com/nexus-substrate/nexus-eval-atbench/issues"
   },
   "type": "module",
   "main": "dist/index.js",
