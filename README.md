@@ -33,6 +33,9 @@ npx nexus-eval-atbench --variant claw --limit 10
 npx nexus-eval-atbench --json --fixture ./fixtures/sample.jsonl > run.json
 ```
 
+The repository ships a small `fixtures/sample.jsonl` file so the quick start
+works offline and in CI smoke tests.
+
 ## Library usage
 
 ```ts
