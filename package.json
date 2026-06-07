@@ -39,7 +39,8 @@
     "node": ">=22.0.0"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "fixtures/"
   ],
   "dependencies": {
     "zod": "^4.0.0"
