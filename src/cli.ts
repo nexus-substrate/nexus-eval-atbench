@@ -13,6 +13,7 @@
 import { parseArgs } from 'node:util';
 import { runBenchmark } from 'nexus-agents';
 import { ATBenchAdapter } from './adapter.js';
+import packageJson from '../package.json' with { type: 'json' };
 
 const HELP = `nexus-eval-atbench — Atbench (agent-trajectory safety) evaluation harness
 
@@ -39,7 +40,7 @@ async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
   if (args.includes('--version') || args.includes('-v')) {
-    process.stdout.write('nexus-eval-atbench 0.1.0\n');
+    process.stdout.write(`nexus-eval-atbench ${packageJson.version}\n`);
     return 0;
   }
 
