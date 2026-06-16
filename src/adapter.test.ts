@@ -249,4 +249,65 @@ describe('ATBenchAdapter', () => {
     expect(s.passed).toBe(0);
     expect(s.passRate).toBe(0);
   });
+
+  // ---- Regression: scoring failure must not inflate metrics (issue #30) ----
+
+  it('does NOT credit a timed-out/errored model as a correct prediction', async () => {
+    // A scorer adapter whose model always errors. Old behavior fell back to
+    // the ground-truth stub, scoring every trajectory as tp/tn → 100% accuracy.
+    const erroringScorer = {
+      providerId: 'mock',
+      modelId: 'mock',
+      capabilities: [],
+      complete: vi.fn(() =>
+        Promise.resolve({ ok: false as const, error: { code: 'MODEL_ERROR', message: 'boom' } as never })
+      ),
+      stream: (() => (async function* () {})()) as never,
+      countTokens: () => Promise.resolve(0),
+      validateConfig: () => ({ ok: true as const, value: undefined }),
+    };
+    const adapter = new ATBenchAdapter({ variant: 'claw', scorerAdapter: erroringScorer, scorerTimeoutMs: 2000 });
+
+    const trajectories = [
+      makeTrajectory({ id: 's1', safetyLabel: 'safe' }),
+      makeTrajectory({ id: 'u1', safetyLabel: 'unsafe' }),
+    ];
+    const results: import('./types.js').ATBenchEvalResult[] = [];
+    for (const t of trajectories) {
+      const pred = await adapter.runInstance(t, { timeoutMs: 2000 });
+      // The prediction is flagged as a scoring error, not derived from truth.
+      expect(pred.scoringError).toBeDefined();
+      results.push(await adapter.evaluate(t, pred));
+    }
+
+    const s = adapter.summarize(results, 100);
+    // The bug: passRate would be 1.0 (perfect). Fixed: nothing passes.
+    expect(s.passed).toBe(0);
+    expect(s.passRate).toBe(0);
+    const meta = s.metadata as { scoringErrors: number; scored: number; sourceBreakdown: { stubFallback: number } };
+    expect(meta.scoringErrors).toBe(2);
+    expect(meta.scored).toBe(0);
+    expect(meta.sourceBreakdown.stubFallback).toBe(2);
+  });
+
+  it('summarize excludes errored results from the confusion matrix', () => {
+    const adapter = new ATBenchAdapter();
+    const results = [
+      { confusion: 'tp', source: 'llm' },
+      { confusion: 'tn', source: 'llm' },
+      // errored: placeholder confusion that would have been a false "tn"
+      { confusion: 'tn', source: 'stub-fallback', scoringError: 'llm-timeout' },
+    ] as readonly unknown[] as readonly import('./types.js').ATBenchEvalResult[];
+
+    const s = adapter.summarize(results, 1);
+    expect(s.passed).toBe(2); // only the 2 real LLM predictions
+    const meta = s.metadata as {
+      confusionMatrix: { tn: number };
+      scoringErrors: number;
+      scored: number;
+    };
+    expect(meta.scoringErrors).toBe(1);
+    expect(meta.scored).toBe(2);
+    expect(meta.confusionMatrix.tn).toBe(1); // errored tn NOT counted
+  });
 });

@@ -17,17 +17,19 @@ import type { ATBenchPrediction, ATBenchTrajectory } from './types.js';
 /**
  * Produce a prediction for a trajectory.
  *
- * The stub returns the ground-truth label — which makes the skeleton scorer
- * a perfect oracle. This is intentional: it keeps the skeleton's tests
- * deterministic while the real scorer is designed. When the LLM-based scorer
- * lands, the return logic here switches to a model call and tests move to
- * mocked-classifier fixtures.
+ * The stub returns the ground-truth label — which makes it a perfect oracle,
+ * NOT a heuristic. It is intended for smoke tests / exercising the adapter
+ * contract only and reports a meaningless 100% score; it must never be used
+ * as a fallback inside a real evaluation (doing so inflates metrics). The
+ * prediction is tagged `source: 'stub'` so the summary can flag any reliance
+ * on it.
  */
 export function scoreTrajectoryStub(trajectory: ATBenchTrajectory): ATBenchPrediction {
   return {
     trajectoryId: trajectory.id,
     predictedLabel: trajectory.safetyLabel,
-    reasoning: 'stub-scorer: echoes ground-truth label (skeleton mode)',
+    reasoning: 'stub-scorer: echoes ground-truth label (smoke-test only)',
+    source: 'stub',
   };
 }
 

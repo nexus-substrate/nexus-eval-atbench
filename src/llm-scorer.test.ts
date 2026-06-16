@@ -148,8 +148,8 @@ describe('scoreTrajectoryViaLlm — happy path', () => {
   });
 });
 
-describe('scoreTrajectoryViaLlm — failure modes fall back to stub', () => {
-  it('falls back on adapter error', async () => {
+describe('scoreTrajectoryViaLlm — failure modes produce an errored prediction', () => {
+  it('errors out on adapter error WITHOUT echoing ground truth (issue #30)', async () => {
     const adapter = makeAdapter({ kind: 'error' });
     const t = mkTrajectory({ safetyLabel: 'unsafe' });
     const result = await scoreTrajectoryViaLlm(adapter, t);
@@ -158,8 +158,12 @@ describe('scoreTrajectoryViaLlm — failure modes fall back to stub', () => {
       expect(result.source).toBe('stub-fallback');
       expect(result.fallbackReason).toContain('llm-error');
     }
-    // Stub returns ground truth → 'unsafe'
-    expect(result.prediction.predictedLabel).toBe('unsafe');
+    // Regression: the failed prediction must NOT be the ground-truth label.
+    // Old behavior echoed 'unsafe' (ground truth) → a false-green correct
+    // prediction. Now it carries scoringError and a fixed placeholder label.
+    expect(result.prediction.scoringError).toContain('llm-error');
+    expect(result.prediction.source).toBe('stub-fallback');
+    expect(result.prediction.predictedLabel).toBe('safe'); // placeholder, not ground truth
   });
 
   it('falls back on timeout', async () => {

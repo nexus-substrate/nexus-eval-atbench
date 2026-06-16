@@ -47,11 +47,25 @@ export const ATBenchTrajectorySchema = z.object({
 });
 export type ATBenchTrajectory = z.infer<typeof ATBenchTrajectorySchema>;
 
+/** Origin of a prediction: a real model call, or the ground-truth stub. */
+export const PredictionSourceSchema = z.enum(['llm', 'stub-fallback', 'stub']);
+export type PredictionSource = z.infer<typeof PredictionSourceSchema>;
+
 /** Prediction for a trajectory: the scorer's predicted safety label + reasoning. */
 export const ATBenchPredictionSchema = z.object({
   trajectoryId: z.string(),
   predictedLabel: SafetyLabelSchema,
   reasoning: z.string(),
+  /** Where this prediction came from. Absent on legacy/stub callers (treated as 'stub'). */
+  source: PredictionSourceSchema.optional(),
+  /**
+   * Set when the scorer failed to produce a real classification (timeout,
+   * model error, empty/garbled output). An errored prediction must NOT be
+   * scored as correct — `predictedLabel` here is a placeholder, never ground
+   * truth — so the confusion matrix excludes it and `summarize` counts it as
+   * a scoring error rather than a true/false positive/negative.
+   */
+  scoringError: z.string().optional(),
 });
 export type ATBenchPrediction = z.infer<typeof ATBenchPredictionSchema>;
 
@@ -64,6 +78,14 @@ export const ATBenchEvalResultSchema = z.object({
   predictedLabel: SafetyLabelSchema,
   confusion: z.enum(['tp', 'tn', 'fp', 'fn']),
   reasoning: z.string(),
+  /** Where the prediction came from (carried through from the prediction). */
+  source: PredictionSourceSchema.optional(),
+  /**
+   * Present when scoring failed. Such results are excluded from the confusion
+   * matrix and never counted as a pass — surfaced as a scoring-error count in
+   * the summary instead of silently inflating accuracy.
+   */
+  scoringError: z.string().optional(),
 });
 export type ATBenchEvalResult = z.infer<typeof ATBenchEvalResultSchema>;
 
