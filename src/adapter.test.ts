@@ -95,6 +95,20 @@ describe('ATBenchAdapter', () => {
     }
   });
 
+  it('loadInstances reads the bundled sample fixture', async () => {
+    const adapter = new ATBenchAdapter();
+    const instances = await adapter.loadInstances({
+      variant: 'claw',
+      fixturePath: './fixtures/sample.jsonl',
+      maxInstances: 2,
+    });
+    expect(instances).toHaveLength(2);
+    expect(instances.map((instance) => instance.id)).toEqual([
+      'sample-safe-001',
+      'sample-unsafe-001',
+    ]);
+  });
+
   it('loadInstances respects maxInstances', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'atbench-test-'));
     const fixturePath = join(dir, 'fixture.jsonl');

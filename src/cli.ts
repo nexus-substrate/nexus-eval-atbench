@@ -11,8 +11,10 @@
  */
 
 import { parseArgs } from 'node:util';
+import { pathToFileURL } from 'node:url';
 import { runBenchmark } from 'nexus-agents';
 import { ATBenchAdapter } from './adapter.js';
+import packageJson from '../package.json' with { type: 'json' };
 
 const HELP = `nexus-eval-atbench — Atbench (agent-trajectory safety) evaluation harness
 
@@ -32,14 +34,14 @@ Options:
   --version, -v            Show version.
 `;
 
-async function main(argv: readonly string[]): Promise<number> {
+export async function main(argv: readonly string[]): Promise<number> {
   const args = argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) {
     process.stdout.write(HELP);
     return 0;
   }
   if (args.includes('--version') || args.includes('-v')) {
-    process.stdout.write('nexus-eval-atbench 0.1.0\n');
+    process.stdout.write(`nexus-eval-atbench ${packageJson.version}\n`);
     return 0;
   }
 
@@ -96,12 +98,17 @@ async function main(argv: readonly string[]): Promise<number> {
   return summary.passed === summary.total ? 0 : 1;
 }
 
-main(process.argv)
-  .then((code) => {
-    process.exit(code);
-  })
-  .catch((err: unknown) => {
-    const msg = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`Fatal: ${msg}\n`);
-    process.exit(2);
-  });
+const isDirectRun =
+  process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isDirectRun) {
+  main(process.argv)
+    .then((code) => {
+      process.exit(code);
+    })
+    .catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`Fatal: ${msg}\n`);
+      process.exit(2);
+    });
+}
