@@ -46,7 +46,7 @@ console.log(`F1: ${summary.metadata.f1}, precision: ${summary.metadata.precision
 
 ### LLM-scored trajectories
 
-The default `runInstance` uses a heuristic stub scorer. Pass a real `IModelAdapter` to score with an LLM:
+The default `runInstance` (no `scorerAdapter`) uses a stub scorer that **echoes the ground-truth label** — a perfect oracle for smoke tests only, reporting a meaningless 100% score; it is **not** a real evaluation. Pass a real `IModelAdapter` to score with an LLM. When the LLM fails (timeout, model error, empty/garbled output) the trajectory is recorded as a *scoring error* and excluded from the confusion matrix — it is **not** silently scored from ground truth. The summary's `metadata.scoringErrors` and `metadata.sourceBreakdown` surface how many predictions came from the LLM vs. fell back, so degraded runs are visible:
 
 ```ts
 const adapter = new ATBenchAdapter({
